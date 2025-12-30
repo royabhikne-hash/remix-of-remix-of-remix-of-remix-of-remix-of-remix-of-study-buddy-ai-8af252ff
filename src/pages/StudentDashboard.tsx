@@ -153,38 +153,71 @@ const StudentDashboard = () => {
     timeSpent: number; 
     messages: ChatMessage[];
     analysis: RealTimeAnalysis;
+    quizResult?: {
+      correctCount: number;
+      totalQuestions: number;
+      accuracy: number;
+      understanding: "strong" | "partial" | "weak";
+    };
   }) => {
     setIsStudying(false);
     
     // Save session to database if we have a student ID
     if (studentId) {
       try {
-        // Map understanding level
-        const understandingMap: Record<string, "weak" | "average" | "good" | "excellent"> = {
-          weak: "weak",
-          average: "average",
-          good: "good",
-          excellent: "excellent"
-        };
+        // Map understanding level based on quiz result or analysis
+        let understandingLevel: "weak" | "average" | "good" | "excellent";
+        let improvementScore: number;
 
-        // Calculate score based on understanding
-        const scoreMap = { weak: 40, average: 60, good: 75, excellent: 90 };
-        const calculatedScore = scoreMap[summary.analysis.currentUnderstanding] + Math.floor(Math.random() * 10);
+        if (summary.quizResult) {
+          // Use actual quiz accuracy as the improvement score
+          improvementScore = summary.quizResult.accuracy;
+          
+          // Map quiz understanding to database enum
+          if (summary.quizResult.understanding === "strong") {
+            understandingLevel = "excellent";
+          } else if (summary.quizResult.understanding === "partial") {
+            understandingLevel = "average";
+          } else {
+            understandingLevel = "weak";
+          }
+        } else {
+          // Fallback to analysis-based score if no quiz
+          const scoreMap = { weak: 40, average: 60, good: 75, excellent: 90 };
+          improvementScore = scoreMap[summary.analysis.currentUnderstanding] || 50;
+          understandingLevel = summary.analysis.currentUnderstanding;
+        }
 
-        const { error } = await supabase.from("study_sessions").insert({
+        const { data: sessionData, error } = await supabase.from("study_sessions").insert({
           student_id: studentId,
           topic: summary.topic || summary.analysis.topicsCovered[0] || "General Study",
           time_spent: summary.timeSpent,
-          understanding_level: understandingMap[summary.analysis.currentUnderstanding] || "average",
-          improvement_score: calculatedScore,
+          understanding_level: understandingLevel,
+          improvement_score: improvementScore,
           weak_areas: summary.analysis.weakAreas,
           strong_areas: summary.analysis.strongAreas,
-          ai_summary: `Studied ${summary.topic} for ${summary.timeSpent} minutes. Understanding: ${summary.analysis.currentUnderstanding}. Topics covered: ${summary.analysis.topicsCovered.join(", ") || "General concepts"}.`,
-        });
+          ai_summary: summary.quizResult 
+            ? `Studied ${summary.topic} for ${summary.timeSpent} minutes. Quiz: ${summary.quizResult.correctCount}/${summary.quizResult.totalQuestions} correct (${summary.quizResult.accuracy}%). Result: ${summary.quizResult.understanding}.`
+            : `Studied ${summary.topic} for ${summary.timeSpent} minutes. Understanding: ${summary.analysis.currentUnderstanding}. Topics covered: ${summary.analysis.topicsCovered.join(", ") || "General concepts"}.`,
+        }).select().single();
 
         if (error) {
           console.error("Error saving session:", error);
         } else {
+          // Save quiz attempt if quiz was taken
+          if (summary.quizResult && sessionData) {
+            await supabase.from("quiz_attempts").insert({
+              student_id: studentId,
+              session_id: sessionData.id,
+              questions: [],
+              answers: [],
+              correct_count: summary.quizResult.correctCount,
+              total_questions: summary.quizResult.totalQuestions,
+              accuracy_percentage: summary.quizResult.accuracy,
+              understanding_result: summary.quizResult.understanding,
+            });
+          }
+          
           // Refresh data
           loadStudentData();
         }
@@ -195,7 +228,9 @@ const StudentDashboard = () => {
 
     toast({
       title: "Study Session Complete! 🎉",
-      description: `You studied ${summary.topic} for ${summary.timeSpent} minutes.`,
+      description: summary.quizResult 
+        ? `Quiz: ${summary.quizResult.correctCount}/${summary.quizResult.totalQuestions} correct (${summary.quizResult.accuracy}%)`
+        : `You studied ${summary.topic} for ${summary.timeSpent} minutes.`,
     });
   };
 
