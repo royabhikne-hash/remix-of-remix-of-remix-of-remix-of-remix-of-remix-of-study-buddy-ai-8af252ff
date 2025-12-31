@@ -133,9 +133,12 @@ const SchoolLogin = () => {
               </Button>
             </form>
 
-            <div className="mt-6 pt-4 border-t border-border text-center space-y-2">
+            <div className="mt-6 pt-4 border-t border-border text-center space-y-3">
               <Link to="/login" className="text-sm text-muted-foreground hover:text-primary block">
                 Student? Login here →
+              </Link>
+              <Link to="/admin-login" className="text-sm text-muted-foreground hover:text-destructive block">
+                Admin Login →
               </Link>
             </div>
           </div>
