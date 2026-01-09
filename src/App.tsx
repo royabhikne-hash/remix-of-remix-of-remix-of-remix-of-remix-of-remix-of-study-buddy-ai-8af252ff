@@ -15,6 +15,8 @@ import SchoolDashboard from "./pages/SchoolDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import StudentProgress from "./pages/StudentProgress";
 import TermsConditions from "./pages/TermsConditions";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +40,9 @@ const App = () => (
               <Route path="/school-dashboard" element={<SchoolDashboard />} />
               <Route path="/admin-dashboard" element={<AdminDashboard />} />
               <Route path="/terms" element={<TermsConditions />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="*" element={<NotFound />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
