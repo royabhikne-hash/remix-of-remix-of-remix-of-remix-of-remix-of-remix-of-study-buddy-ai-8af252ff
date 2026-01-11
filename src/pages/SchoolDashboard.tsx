@@ -19,9 +19,12 @@ import {
   Loader2,
   AlertTriangle,
   Trash2,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -85,6 +88,12 @@ const SchoolDashboard = () => {
     student: StudentData | null;
   }>({ open: false, student: null });
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Bulk selection state
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [showBulkRejectDialog, setShowBulkRejectDialog] = useState(false);
+  const [bulkRejectionReason, setBulkRejectionReason] = useState("");
 
   useEffect(() => {
     const storedSchoolName = localStorage.getItem("schoolName");
@@ -216,21 +225,29 @@ const SchoolDashboard = () => {
     }
   };
 
+  const getSchoolCredentials = () => {
+    const schoolId = localStorage.getItem("schoolId");
+    const schoolUUID = localStorage.getItem("schoolUUID") || schoolUuid;
+    
+    if (!schoolId || !schoolUUID) {
+      return null;
+    }
+    
+    return { schoolId, schoolUUID };
+  };
+
   const handleApproveStudent = async (studentId: string) => {
     setApprovingId(studentId);
 
     try {
-      const schoolId = localStorage.getItem("schoolId");
-      const schoolPassword = sessionStorage.getItem("schoolPassword");
-
-      if (!schoolId || !schoolPassword) {
+      const creds = getSchoolCredentials();
+      if (!creds) {
         toast({
           title: "Session expired",
           description: "Please login again to approve students.",
           variant: "destructive",
         });
         localStorage.clear();
-        sessionStorage.clear();
         navigate("/school-login");
         return;
       }
@@ -238,8 +255,8 @@ const SchoolDashboard = () => {
       const { data, error } = await supabase.functions.invoke("school-student-approval", {
         body: {
           action: "approve",
-          schoolId,
-          schoolPassword,
+          schoolId: creds.schoolId,
+          schoolUuid: creds.schoolUUID,
           studentId,
         },
       });
@@ -280,17 +297,14 @@ const SchoolDashboard = () => {
 
     setApprovingId(rejectingStudent.id);
     try {
-      const schoolId = localStorage.getItem("schoolId");
-      const schoolPassword = sessionStorage.getItem("schoolPassword");
-
-      if (!schoolId || !schoolPassword) {
+      const creds = getSchoolCredentials();
+      if (!creds) {
         toast({
           title: "Session expired",
           description: "Please login again to reject students.",
           variant: "destructive",
         });
         localStorage.clear();
-        sessionStorage.clear();
         navigate("/school-login");
         return;
       }
@@ -298,8 +312,8 @@ const SchoolDashboard = () => {
       const { data, error } = await supabase.functions.invoke("school-student-approval", {
         body: {
           action: "reject",
-          schoolId,
-          schoolPassword,
+          schoolId: creds.schoolId,
+          schoolUuid: creds.schoolUUID,
           studentId: rejectingStudent.id,
           rejectionReason: rejectionReason.trim() || "No reason provided",
         },
@@ -333,8 +347,138 @@ const SchoolDashboard = () => {
     }
   };
 
+  // Bulk actions
+  const togglePendingSelection = (studentId: string) => {
+    setSelectedPendingIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(studentId)) {
+        newSet.delete(studentId);
+      } else {
+        newSet.add(studentId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllPending = () => {
+    const pendingIds = pendingStudents.map((s) => s.id);
+    setSelectedPendingIds(new Set(pendingIds));
+  };
+
+  const deselectAllPending = () => {
+    setSelectedPendingIds(new Set());
+  };
+
+  const handleBulkApprove = async () => {
+    if (selectedPendingIds.size === 0) return;
+
+    setBulkProcessing(true);
+    try {
+      const creds = getSchoolCredentials();
+      if (!creds) {
+        toast({
+          title: "Session expired",
+          description: "Please login again.",
+          variant: "destructive",
+        });
+        localStorage.clear();
+        navigate("/school-login");
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke("school-student-approval", {
+        body: {
+          action: "bulk_approve",
+          schoolId: creds.schoolId,
+          schoolUuid: creds.schoolUUID,
+          studentIds: Array.from(selectedPendingIds),
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || "Bulk approval failed");
+      }
+
+      setStudents((prev) =>
+        prev.map((s) => (selectedPendingIds.has(s.id) ? { ...s, isApproved: true } : s))
+      );
+
+      toast({
+        title: `${data.count} Students Approved ✓`,
+        description: "Students can now use the study platform.",
+      });
+
+      setSelectedPendingIds(new Set());
+    } catch (error) {
+      console.error("Error bulk approving:", error);
+      toast({
+        title: "Bulk Approval Failed",
+        description: error instanceof Error ? error.message : "Could not approve students.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
+  const handleBulkReject = async () => {
+    if (selectedPendingIds.size === 0) return;
+
+    setBulkProcessing(true);
+    try {
+      const creds = getSchoolCredentials();
+      if (!creds) {
+        toast({
+          title: "Session expired",
+          description: "Please login again.",
+          variant: "destructive",
+        });
+        localStorage.clear();
+        navigate("/school-login");
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke("school-student-approval", {
+        body: {
+          action: "bulk_reject",
+          schoolId: creds.schoolId,
+          schoolUuid: creds.schoolUUID,
+          studentIds: Array.from(selectedPendingIds),
+          rejectionReason: bulkRejectionReason.trim() || "No reason provided",
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || "Bulk rejection failed");
+      }
+
+      setStudents((prev) => prev.filter((s) => !selectedPendingIds.has(s.id)));
+
+      toast({
+        title: `${data.count} Students Rejected`,
+        description: "Student requests have been rejected.",
+      });
+
+      setSelectedPendingIds(new Set());
+      setShowBulkRejectDialog(false);
+      setBulkRejectionReason("");
+    } catch (error) {
+      console.error("Error bulk rejecting:", error);
+      toast({
+        title: "Bulk Rejection Failed",
+        description: error instanceof Error ? error.message : "Could not reject students.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.clear();
+    sessionStorage.clear();
     navigate("/");
   };
 
@@ -450,16 +594,16 @@ const SchoolDashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 py-4">
+      <header className="border-b border-border bg-card sticky top-0 z-10">
+        <div className="container mx-auto px-4 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center">
-                <Building2 className="w-6 h-6 text-accent-foreground" />
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-accent flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-4 h-4 sm:w-6 sm:h-6 text-accent-foreground" />
               </div>
-              <div>
-                <span className="font-bold text-lg">{schoolName}</span>
-                <p className="text-xs text-muted-foreground">School Dashboard</p>
+              <div className="min-w-0">
+                <span className="font-bold text-sm sm:text-lg truncate block">{schoolName}</span>
+                <p className="text-xs text-muted-foreground hidden sm:block">School Dashboard</p>
               </div>
             </div>
             <Button variant="ghost" size="icon" onClick={handleLogout}>
@@ -470,51 +614,51 @@ const SchoolDashboard = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-4 py-4 sm:py-8">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="edu-card p-4 text-center">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
-              <Users className="w-6 h-6 text-primary" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6 sm:mb-8">
+          <div className="edu-card p-3 sm:p-4 text-center">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <Users className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
             </div>
-            <p className="text-2xl font-bold">{stats.totalStudents}</p>
-            <p className="text-sm text-muted-foreground">Approved Students</p>
+            <p className="text-xl sm:text-2xl font-bold">{stats.totalStudents}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Approved</p>
           </div>
-          <div className="edu-card p-4 text-center relative">
-            <div className="w-12 h-12 rounded-xl bg-warning/10 flex items-center justify-center mx-auto mb-2">
-              <Clock className="w-6 h-6 text-warning" />
+          <div className="edu-card p-3 sm:p-4 text-center relative">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-warning/10 flex items-center justify-center mx-auto mb-2">
+              <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-warning" />
             </div>
-            <p className="text-2xl font-bold">{stats.pendingApprovals}</p>
-            <p className="text-sm text-muted-foreground">Pending Approvals</p>
+            <p className="text-xl sm:text-2xl font-bold">{stats.pendingApprovals}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Pending</p>
             {stats.pendingApprovals > 0 && (
-              <span className="absolute top-2 right-2 w-3 h-3 bg-warning rounded-full animate-pulse" />
+              <span className="absolute top-2 right-2 w-2 h-2 sm:w-3 sm:h-3 bg-warning rounded-full animate-pulse" />
             )}
           </div>
-          <div className="edu-card p-4 text-center">
-            <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mx-auto mb-2">
-              <BookOpen className="w-6 h-6 text-accent" />
+          <div className="edu-card p-3 sm:p-4 text-center">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-accent/10 flex items-center justify-center mx-auto mb-2">
+              <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-accent" />
             </div>
-            <p className="text-2xl font-bold">{stats.studiedToday}</p>
-            <p className="text-sm text-muted-foreground">Studied Today</p>
+            <p className="text-xl sm:text-2xl font-bold">{stats.studiedToday}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Today</p>
           </div>
-          <div className="edu-card p-4 text-center">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
-              <TrendingUp className="w-6 h-6 text-primary" />
+          <div className="edu-card p-3 sm:p-4 text-center">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
             </div>
-            <p className="text-2xl font-bold">{stats.improving}</p>
-            <p className="text-sm text-muted-foreground">Improving</p>
+            <p className="text-xl sm:text-2xl font-bold">{stats.improving}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Improving</p>
           </div>
         </div>
 
         {/* Tabs for Pending vs Approved */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
           <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="approved" className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4" />
+            <TabsTrigger value="approved" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <UserCheck className="w-3 h-3 sm:w-4 sm:h-4" />
               Approved ({approvedStudents.length})
             </TabsTrigger>
-            <TabsTrigger value="pending" className="flex items-center gap-2 relative">
-              <Clock className="w-4 h-4" />
+            <TabsTrigger value="pending" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm relative">
+              <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
               Pending ({pendingStudents.length})
               {pendingStudents.length > 0 && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-warning rounded-full" />
@@ -523,16 +667,78 @@ const SchoolDashboard = () => {
           </TabsList>
 
           {/* Pending Approvals Tab */}
-          <TabsContent value="pending" className="mt-6">
+          <TabsContent value="pending" className="mt-4 sm:mt-6">
             <div className="edu-card overflow-hidden">
-              <div className="p-4 border-b border-border bg-warning/10">
-                <h2 className="font-bold flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-warning" />
-                  Pending Student Approvals
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Review and approve students to allow them access to the study platform.
-                </p>
+              <div className="p-3 sm:p-4 border-b border-border bg-warning/10">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="font-bold flex items-center gap-2 text-sm sm:text-base">
+                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-warning" />
+                      Pending Student Approvals
+                    </h2>
+                    <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      Review and approve students to allow them access.
+                    </p>
+                  </div>
+                  
+                  {/* Bulk Actions */}
+                  {pendingStudents.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedPendingIds.size > 0 && (
+                        <span className="text-xs sm:text-sm text-muted-foreground">
+                          {selectedPendingIds.size} selected
+                        </span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={selectedPendingIds.size === pendingStudents.length ? deselectAllPending : selectAllPending}
+                        className="text-xs"
+                      >
+                        {selectedPendingIds.size === pendingStudents.length ? (
+                          <>
+                            <Square className="w-3 h-3 mr-1" />
+                            Deselect
+                          </>
+                        ) : (
+                          <>
+                            <CheckSquare className="w-3 h-3 mr-1" />
+                            Select All
+                          </>
+                        )}
+                      </Button>
+                      {selectedPendingIds.size > 0 && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={handleBulkApprove}
+                            disabled={bulkProcessing}
+                            className="bg-accent hover:bg-accent/90 text-xs"
+                          >
+                            {bulkProcessing ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <>
+                                <UserCheck className="w-3 h-3 mr-1" />
+                                Approve All
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setShowBulkRejectDialog(true)}
+                            disabled={bulkProcessing}
+                            className="text-destructive hover:text-destructive text-xs"
+                          >
+                            <UserX className="w-3 h-3 mr-1" />
+                            Reject All
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               {pendingStudents.length === 0 ? (
@@ -544,42 +750,55 @@ const SchoolDashboard = () => {
               ) : (
                 <div className="divide-y divide-border">
                   {pendingStudents.map((student) => (
-                    <div key={student.id} className="p-4 hover:bg-muted/30">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          {student.photo ? (
-                            <img 
-                              src={student.photo} 
-                              alt={student.name}
-                              className="w-14 h-14 rounded-full object-cover border-2 border-warning/30"
-                            />
-                          ) : (
-                            <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center text-xl font-bold border-2 border-warning/30">
-                              {student.name.charAt(0)}
+                    <div key={student.id} className="p-3 sm:p-4 hover:bg-muted/30">
+                      <div className="flex items-start gap-3">
+                        {/* Checkbox */}
+                        <div className="pt-2">
+                          <Checkbox
+                            checked={selectedPendingIds.has(student.id)}
+                            onCheckedChange={() => togglePendingSelection(student.id)}
+                          />
+                        </div>
+                        
+                        {/* Student Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start gap-3">
+                            {student.photo ? (
+                              <img 
+                                src={student.photo} 
+                                alt={student.name}
+                                className="w-10 h-10 sm:w-14 sm:h-14 rounded-full object-cover border-2 border-warning/30 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-secondary flex items-center justify-center text-base sm:text-xl font-bold border-2 border-warning/30 flex-shrink-0">
+                                {student.name.charAt(0)}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-sm sm:text-lg truncate">{student.name}</p>
+                              <p className="text-xs sm:text-sm text-muted-foreground">Class: {student.class}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {formatDate(student.createdAt)}
+                              </p>
                             </div>
-                          )}
-                          <div>
-                            <p className="font-semibold text-lg">{student.name}</p>
-                            <p className="text-sm text-muted-foreground">Class: {student.class}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Registered: {formatDate(student.createdAt)}
-                            </p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        
+                        {/* Actions */}
+                        <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => openRejectDialog(student)}
                             disabled={approvingId === student.id}
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
                           >
                             {approvingId === student.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
                               <>
-                                <UserX className="w-4 h-4 mr-1" />
-                                Reject
+                                <UserX className="w-3 h-3 sm:mr-1" />
+                                <span className="hidden sm:inline">Reject</span>
                               </>
                             )}
                           </Button>
@@ -587,14 +806,14 @@ const SchoolDashboard = () => {
                             size="sm"
                             onClick={() => handleApproveStudent(student.id)}
                             disabled={approvingId === student.id}
-                            className="bg-accent hover:bg-accent/90"
+                            className="bg-accent hover:bg-accent/90 text-xs"
                           >
                             {approvingId === student.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
                               <>
-                                <UserCheck className="w-4 h-4 mr-1" />
-                                Approve
+                                <UserCheck className="w-3 h-3 sm:mr-1" />
+                                <span className="hidden sm:inline">Approve</span>
                               </>
                             )}
                           </Button>
@@ -608,20 +827,20 @@ const SchoolDashboard = () => {
           </TabsContent>
 
           {/* Approved Students Tab */}
-          <TabsContent value="approved" className="mt-6">
+          <TabsContent value="approved" className="mt-4 sm:mt-6">
             {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4 sm:mb-6">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
                 <Input
                   placeholder="Search students..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="pl-9 sm:pl-10 h-10 sm:h-12"
                 />
               </div>
               <select
-                className="flex h-12 rounded-xl border border-input bg-background px-4 py-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-10 sm:h-12 rounded-xl border border-input bg-background px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
               >
@@ -636,8 +855,8 @@ const SchoolDashboard = () => {
 
             {/* Student List */}
             <div className="edu-card overflow-hidden">
-              <div className="p-4 border-b border-border bg-secondary/30">
-                <h2 className="font-bold">Student Activity</h2>
+              <div className="p-3 sm:p-4 border-b border-border bg-secondary/30">
+                <h2 className="font-bold text-sm sm:text-base">Student Activity</h2>
               </div>
               
               {approvedStudents.length === 0 ? (
@@ -731,23 +950,23 @@ const SchoolDashboard = () => {
                   {/* Mobile Cards */}
                   <div className="md:hidden divide-y divide-border">
                     {filteredStudents.map((student) => (
-                      <div key={student.id} className="p-4">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3">
+                      <div key={student.id} className="p-3 sm:p-4">
+                        <div className="flex items-start justify-between mb-2 sm:mb-3">
+                          <div className="flex items-center gap-2 sm:gap-3">
                             {student.photo ? (
                               <img 
                                 src={student.photo} 
                                 alt={student.name}
-                                className="w-12 h-12 rounded-full object-cover"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover"
                               />
                             ) : (
-                              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-lg font-bold">
+                              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-secondary flex items-center justify-center text-base sm:text-lg font-bold">
                                 {student.name.charAt(0)}
                               </div>
                             )}
                             <div>
-                              <p className="font-semibold">{student.name}</p>
-                              <p className="text-sm text-muted-foreground">{student.class}</p>
+                              <p className="font-semibold text-sm sm:text-base">{student.name}</p>
+                              <p className="text-xs sm:text-sm text-muted-foreground">{student.class}</p>
                             </div>
                           </div>
                           {student.todayStudied ? (
@@ -760,10 +979,10 @@ const SchoolDashboard = () => {
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                        <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm mb-3">
                           <div>
                             <span className="text-muted-foreground">Topic: </span>
-                            {student.topicStudied}
+                            <span className="truncate">{student.topicStudied}</span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Trend: </span>
@@ -775,9 +994,9 @@ const SchoolDashboard = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => handleViewReport(student)}
-                            className="flex-1"
+                            className="flex-1 text-xs"
                           >
-                            <Eye className="w-4 h-4 mr-1" />
+                            <Eye className="w-3 h-3 mr-1" />
                             View Report
                           </Button>
                           <Button
@@ -788,9 +1007,9 @@ const SchoolDashboard = () => {
                             disabled={deletingId === student.id}
                           >
                             {deletingId === student.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3 h-3" />
                             )}
                           </Button>
                         </div>
@@ -806,12 +1025,12 @@ const SchoolDashboard = () => {
 
       {/* Rejection Reason Dialog */}
       <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-sm sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Reject Student Registration</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Reject Student Registration</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs sm:text-sm text-muted-foreground">
               You are about to reject <strong>{rejectingStudent?.name}</strong>'s registration. 
               Please provide a reason (optional):
             </p>
@@ -820,16 +1039,18 @@ const SchoolDashboard = () => {
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
               rows={3}
+              className="text-sm"
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button 
               variant="destructive" 
               onClick={handleRejectStudent}
               disabled={approvingId === rejectingStudent?.id}
+              className="w-full sm:w-auto"
             >
               {approvingId === rejectingStudent?.id ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -842,23 +1063,63 @@ const SchoolDashboard = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Bulk Rejection Reason Dialog */}
+      <Dialog open={showBulkRejectDialog} onOpenChange={setShowBulkRejectDialog}>
+        <DialogContent className="max-w-sm sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base sm:text-lg">Reject {selectedPendingIds.size} Students</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              You are about to reject <strong>{selectedPendingIds.size} students</strong>. 
+              Please provide a reason (optional):
+            </p>
+            <Textarea
+              placeholder="Enter reason for rejection (e.g., Invalid details, Not students of this school, etc.)"
+              value={bulkRejectionReason}
+              onChange={(e) => setBulkRejectionReason(e.target.value)}
+              rows={3}
+              className="text-sm"
+            />
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowBulkRejectDialog(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleBulkReject}
+              disabled={bulkProcessing}
+              className="w-full sm:w-auto"
+            >
+              {bulkProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <UserX className="w-4 h-4 mr-2" />
+              )}
+              Reject All Selected
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Student Confirmation Dialog */}
       <AlertDialog open={deleteDialog.open} onOpenChange={(open) => !open && setDeleteDialog({ open: false, student: null })}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-sm sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
+            <AlertDialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-destructive" />
               Remove Student
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-xs sm:text-sm">
               Are you sure you want to remove <strong>{deleteDialog.student?.name}</strong> from your school? 
-              This will permanently delete their account and all study data. This action cannot be undone.
+              This will permanently delete their account and all study data.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90"
+              className="bg-destructive hover:bg-destructive/90 w-full sm:w-auto"
               onClick={() => deleteDialog.student && handleDeleteStudent(deleteDialog.student.id)}
               disabled={deletingId === deleteDialog.student?.id}
             >
