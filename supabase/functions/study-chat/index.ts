@@ -198,7 +198,7 @@ Keep topics short (2-3 words max).` : "";
       }
     }
 
-    console.log("Calling Lovable AI with model: google/gemini-2.5-flash");
+    console.log("Calling Lovable AI with model: openai/gpt-5-mini");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -207,7 +207,7 @@ Keep topics short (2-3 words max).` : "";
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5-mini",
         messages: chatMessages,
         max_tokens: 1000,
       }),

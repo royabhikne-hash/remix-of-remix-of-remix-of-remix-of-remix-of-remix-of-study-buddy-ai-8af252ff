@@ -78,7 +78,7 @@ Is the student's answer correct or equivalent to the expected answer? Consider m
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5-nano",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
