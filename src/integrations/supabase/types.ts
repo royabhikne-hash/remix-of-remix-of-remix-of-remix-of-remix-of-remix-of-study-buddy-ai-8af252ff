@@ -637,9 +637,7 @@ export type Database = {
         Row: {
           created_at: string | null
           district: string | null
-          fee_paid: boolean | null
           id: string | null
-          is_banned: boolean | null
           name: string | null
           school_id: string | null
           state: string | null
@@ -647,9 +645,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           district?: string | null
-          fee_paid?: boolean | null
           id?: string | null
-          is_banned?: boolean | null
           name?: string | null
           school_id?: string | null
           state?: string | null
@@ -657,9 +653,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           district?: string | null
-          fee_paid?: boolean | null
           id?: string | null
-          is_banned?: boolean | null
           name?: string | null
           school_id?: string | null
           state?: string | null

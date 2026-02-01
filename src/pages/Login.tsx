@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import LanguageToggle from "@/components/LanguageToggle";
 import AuthRepairButton from "@/components/AuthRepairButton";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { loginSchema, validateForm } from "@/lib/validation";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -24,6 +25,19 @@ const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate inputs
+    const validation = validateForm(loginSchema, { email, password });
+    if (!validation.success && 'errors' in validation) {
+      const firstError = Object.values(validation.errors)[0];
+      toast({
+        title: language === 'en' ? "Validation Error" : "वैलिडेशन एरर",
+        description: firstError,
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsLoading(true);
 
     try {

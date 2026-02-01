@@ -7,6 +7,7 @@ import { BookOpen, ArrowLeft, Eye, EyeOff, Camera, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { signupSchema, validateForm } from "@/lib/validation";
 
 interface School {
   id: string;
@@ -40,6 +41,7 @@ const Signup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Load schools on mount
   useEffect(() => {
@@ -91,6 +93,19 @@ const Signup = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationErrors({});
+    
+    // Validate form data
+    const validation = validateForm(signupSchema, formData);
+    if (!validation.success && 'errors' in validation) {
+      setValidationErrors(validation.errors);
+      toast({
+        title: "Validation Error",
+        description: "Please fix the errors in the form",
+        variant: "destructive",
+      });
+      return;
+    }
     
     if (!photoPreview || !photoFile) {
       toast({
@@ -105,15 +120,6 @@ const Signup = () => {
       toast({
         title: "School Required",
         description: "Please select your school.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      toast({
-        title: "Password too short",
-        description: "Password must be at least 6 characters.",
         variant: "destructive",
       });
       return;
