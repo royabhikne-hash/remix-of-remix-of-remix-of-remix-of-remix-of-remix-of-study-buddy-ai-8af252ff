@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Image, X, Loader2, Brain, TrendingUp, AlertTriangle, Volume2, VolumeX, CheckCircle, XCircle, ThumbsUp, HelpCircle, Lightbulb, Bot, User, Mic, MicOff, Settings2 } from "lucide-react";
+import { Send, Image, X, Loader2, Brain, TrendingUp, AlertTriangle, Volume2, VolumeX, CheckCircle, XCircle, ThumbsUp, HelpCircle, Lightbulb, Bot, User, Mic, MicOff, Settings2, BookOpen } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import Confetti from "@/components/Confetti";
 import TypingText from "@/components/TypingText";
 import { useNativeTTS } from "@/hooks/useNativeTTS";
 import VoiceSelector from "@/components/VoiceSelector";
+import SubjectChapterSelector from "@/components/SubjectChapterSelector";
 
 // Web Speech API types
 interface SpeechRecognitionEvent extends Event {
@@ -102,15 +103,23 @@ interface StudyChatProps {
     };
   }) => void;
   studentId?: string;
+  studentClass?: string;
+  studentBoard?: string;
 }
 
-const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
+const StudyChat = ({ onEndStudy, studentId, studentClass = "10", studentBoard = "CBSE" }: StudyChatProps) => {
   const { toast } = useToast();
+  
+  // Subject and Chapter selection state
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedChapter, setSelectedChapter] = useState("");
+  const [showSubjectSelector, setShowSubjectSelector] = useState(true);
+  
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "1",
       role: "assistant",
-      content: "Bhai, aaj kya padh raha hai? Chal bata kaunsa subject ya chapter start karna hai! 📚",
+      content: "Bhai, pehle apna Subject aur Chapter select karo taaki main tumhe focused help de sakun! 📚",
       timestamp: new Date(),
     },
   ]);
@@ -395,7 +404,12 @@ const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
           messages: formattedMessages, 
           studentId, 
           analyzeSession: true,
-          currentTopic: currentTopic || undefined // Pass current topic to AI
+          currentTopic: currentTopic || undefined,
+          // Pass subject and chapter context to AI
+          subject: selectedSubject || undefined,
+          chapter: selectedChapter || undefined,
+          studentClass: studentClass,
+          studentBoard: studentBoard
         }
       });
 
@@ -810,6 +824,33 @@ const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
     }
   };
 
+  // Handle subject/chapter selection
+  const handleSubjectChange = (subject: string) => {
+    setSelectedSubject(subject);
+    setSelectedChapter(""); // Reset chapter when subject changes
+  };
+
+  const handleChapterChange = (chapter: string) => {
+    setSelectedChapter(chapter);
+    setCurrentTopic(`${selectedSubject} - ${chapter}`);
+    setShowSubjectSelector(false);
+    
+    // Add confirmation message
+    const confirmMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: `Perfect! 📖 Tune **${selectedSubject}** ka chapter **"${chapter}"** select kiya hai. Ab is chapter ke baare mein kuch bhi puch - main sirf isi chapter se related help dunga! Shuru karte hain? 🚀`,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, confirmMessage]);
+    
+    if (autoSpeak) {
+      setTimeout(() => {
+        speakText(confirmMessage.content.replace(/\*\*/g, ""), confirmMessage.id);
+      }, 300);
+    }
+  };
+
   const currentQuestion = quizQuestions[currentQuestionIndex];
 
   return (
@@ -830,6 +871,11 @@ const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
                   <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
                   Q {currentQuestionIndex + 1}/{quizQuestions.length}
                 </span>
+              ) : selectedChapter ? (
+                <span className="flex items-center gap-1 truncate max-w-[150px]">
+                  <BookOpen className="w-3 h-3 text-primary" />
+                  {selectedChapter.length > 20 ? selectedChapter.substring(0, 20) + "..." : selectedChapter}
+                </span>
               ) : (
                 <span className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
@@ -840,6 +886,18 @@ const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
           </div>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
+          {/* Subject/Chapter Toggle */}
+          {selectedChapter && !isQuizMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSubjectSelector(true)}
+              className="h-7 sm:h-8 px-2 text-[10px] sm:text-xs"
+            >
+              <BookOpen className="w-3 h-3 mr-1" />
+              Change
+            </Button>
+          )}
           {/* Voice Speed Control - Mobile Optimized */}
           <Popover>
             <PopoverTrigger asChild>
@@ -919,6 +977,42 @@ const StudyChat = ({ onEndStudy, studentId }: StudyChatProps) => {
           )}
         </div>
       </div>
+
+      {/* Subject/Chapter Selector Panel */}
+      {showSubjectSelector && !isQuizMode && (
+        <div className="px-3 sm:px-4 py-3 bg-primary/5 border-b border-border">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium">Subject & Chapter चुनें</span>
+              </div>
+              {selectedChapter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSubjectSelector(false)}
+                  className="h-6 px-2 text-xs"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+            <SubjectChapterSelector
+              studentClass={studentClass}
+              selectedSubject={selectedSubject}
+              selectedChapter={selectedChapter}
+              onSubjectChange={handleSubjectChange}
+              onChapterChange={handleChapterChange}
+            />
+            {selectedSubject && !selectedChapter && (
+              <p className="text-xs text-muted-foreground">
+                📖 Ab chapter select karo
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Analysis Panel - Mobile Optimized */}
       {showAnalysis && (

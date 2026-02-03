@@ -22,6 +22,8 @@ import {
   CheckSquare,
   Square,
   MapPin,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +48,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import StudentReportModal from "@/components/StudentReportModal";
+import StudentAnalyticsCard from "@/components/StudentAnalyticsCard";
 import { useToast } from "@/hooks/use-toast";
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -77,6 +80,8 @@ interface StudentData {
   totalSessions: number;
   isApproved: boolean;
   createdAt: string;
+  quizAccuracy?: number;
+  studyTimeToday?: number;
 }
 
 const SchoolDashboard = () => {
@@ -97,6 +102,7 @@ const SchoolDashboard = () => {
   const [rankings, setRankings] = useState<RankingData[]>([]);
   const [districtRankings, setDistrictRankings] = useState<RankingData[]>([]);
   const [schoolDistrict, setSchoolDistrict] = useState<string>("");
+  const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
   
   // Fee payment check
   const [feePaid, setFeePaid] = useState(true);
@@ -217,6 +223,7 @@ const SchoolDashboard = () => {
         
         const formattedStudents: StudentData[] = data.students.map((student: any) => {
           const studentSessions = student.study_sessions || [];
+          const quizAttempts = student.quiz_attempts || [];
           const todaySessions = studentSessions.filter((s: any) => 
             new Date(s.created_at).toDateString() === today
           );
@@ -232,6 +239,15 @@ const SchoolDashboard = () => {
             else if (avg1 < avg2 - 5) trend = "down";
           }
 
+          // Calculate quiz accuracy
+          const recentQuizzes = quizAttempts.slice(0, 10);
+          const quizAccuracy = recentQuizzes.length > 0
+            ? Math.round(recentQuizzes.reduce((acc: number, q: any) => acc + (q.accuracy_percentage || 0), 0) / recentQuizzes.length)
+            : 0;
+
+          // Calculate study time today
+          const studyTimeToday = todaySessions.reduce((acc: number, s: any) => acc + (s.time_spent || 0), 0);
+
           return {
             id: student.id,
             photo: student.photo_url || "",
@@ -243,6 +259,8 @@ const SchoolDashboard = () => {
             totalSessions: studentSessions.length,
             isApproved: student.is_approved,
             createdAt: student.created_at,
+            quizAccuracy,
+            studyTimeToday: Math.round(studyTimeToday / 60),
           };
         });
 
@@ -899,37 +917,78 @@ const SchoolDashboard = () => {
                   className="pl-9 sm:pl-10 h-10 sm:h-12"
                 />
               </div>
-              <select
-                className="flex h-10 sm:h-12 rounded-xl border border-input bg-background px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-              >
-                <option value="all">{t("school.allClasses")}</option>
-                {uniqueClasses.map((cls) => (
-                  <option key={cls} value={cls}>
-                    {cls}
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  className="flex h-10 sm:h-12 rounded-xl border border-input bg-background px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={selectedClass}
+                  onChange={(e) => setSelectedClass(e.target.value)}
+                >
+                  <option value="all">{t("school.allClasses")}</option>
+                  {uniqueClasses.map((cls) => (
+                    <option key={cls} value={cls}>
+                      {cls}
+                    </option>
+                  ))}
+                </select>
+                {/* View Mode Toggle */}
+                <div className="flex border border-input rounded-xl overflow-hidden">
+                  <Button
+                    variant={viewMode === "cards" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("cards")}
+                    className="rounded-none h-10 sm:h-12 px-3"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === "list" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setViewMode("list")}
+                    className="rounded-none h-10 sm:h-12 px-3"
+                  >
+                    <List className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
 
-            {/* Student List */}
-            <div className="edu-card overflow-hidden">
-              <div className="p-3 sm:p-4 border-b border-border bg-secondary/30">
-                <h2 className="font-bold text-sm sm:text-base">{t("school.studentActivity")}</h2>
+            {approvedStudents.length === 0 ? (
+              <div className="edu-card p-8 text-center text-muted-foreground">
+                <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>{t("school.noApprovedTitle")}</p>
+                <p className="text-sm">{t("school.noApprovedDesc")}</p>
               </div>
-              
-              {approvedStudents.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>{t("school.noApprovedTitle")}</p>
-                  <p className="text-sm">{t("school.noApprovedDesc")}</p>
+            ) : viewMode === "cards" ? (
+              /* Analytics Cards Grid View */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {filteredStudents.map((student) => (
+                  <StudentAnalyticsCard
+                    key={student.id}
+                    id={student.id}
+                    photo={student.photo}
+                    name={student.name}
+                    studentClass={student.class}
+                    todayStudied={student.todayStudied}
+                    topicStudied={student.topicStudied}
+                    improvementTrend={student.improvementTrend}
+                    totalSessions={student.totalSessions}
+                    quizAccuracy={student.quizAccuracy}
+                    studyTimeToday={student.studyTimeToday}
+                    onViewReport={() => handleViewReport(student)}
+                    onDelete={() => setDeleteDialog({ open: true, student })}
+                  />
+                ))}
+              </div>
+            ) : (
+              /* List View - Table */
+              <div className="edu-card overflow-hidden">
+                <div className="p-3 sm:p-4 border-b border-border bg-secondary/30">
+                  <h2 className="font-bold text-sm sm:text-base">{t("school.studentActivity")}</h2>
                 </div>
-              ) : (
-                <>
-                  {/* Desktop Table */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full">
+                
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="text-left p-4 font-semibold">{t("school.table.student")}</th>
@@ -1007,7 +1066,7 @@ const SchoolDashboard = () => {
                     </table>
                   </div>
 
-                  {/* Mobile Cards */}
+                  {/* Mobile Cards for List View */}
                   <div className="md:hidden divide-y divide-border">
                     {filteredStudents.map((student) => (
                       <div key={student.id} className="p-3 sm:p-4">
@@ -1076,9 +1135,8 @@ const SchoolDashboard = () => {
                       </div>
                     ))}
                   </div>
-                </>
+                </div>
               )}
-            </div>
           </TabsContent>
 
           {/* Rankings Tab */}

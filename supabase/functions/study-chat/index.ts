@@ -165,7 +165,7 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, studentId, analyzeSession, currentTopic, studentContext } = await req.json();
+    const { messages, studentId, analyzeSession, currentTopic, studentContext, subject, chapter, studentClass, studentBoard } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
@@ -190,7 +190,12 @@ serve(async (req) => {
     let pastSessions: any[] = [];
     let weakAreas: string[] = [];
     let strongAreas: string[] = [];
-    let studentProfile: StudentContext = studentContext || {};
+    let studentProfile: StudentContext = studentContext || {
+      subject: subject,
+      chapter: chapter,
+      studentClass: studentClass,
+      board: studentBoard
+    };
 
     if (studentId) {
       try {
