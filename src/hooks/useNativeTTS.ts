@@ -68,7 +68,7 @@ export const useNativeTTS = () => {
   }, []);
 
   const getBestVoice = useCallback((): SpeechSynthesisVoice | null => {
-    // Get fresh voices list (in case they weren't loaded initially)
+    // Get fresh voices list
     const voices = availableVoices.length > 0 
       ? availableVoices 
       : window.speechSynthesis.getVoices();
@@ -78,49 +78,77 @@ export const useNativeTTS = () => {
       return null;
     }
 
-    // Log all available voices for debugging
-    console.log('TTS: Available voices:', voices.map(v => `${v.name} (${v.lang})`).join(', '));
+    // Log all Hindi/Indian voices for debugging
+    const hindiVoices = voices.filter(v => v.lang.startsWith('hi') || v.lang === 'en-IN');
+    console.log('TTS: Hindi/Indian voices:', hindiVoices.map(v => `${v.name} (${v.lang})`).join(', ') || 'None');
 
-    // Priority order - HINDI FIRST!
-    // 1. Look for specific Hindi male voices (preferred for study buddy)
-    const hindiMaleNames = ['Madhur', 'Hemant', 'Prabhat', 'Hindi India Male', 'Google हिन्दी', 'Microsoft Madhur'];
-    const hindiMaleVoice = voices.find(v => 
-      v.lang === 'hi-IN' && hindiMaleNames.some(name => v.name.toLowerCase().includes(name.toLowerCase()))
-    );
+    // PRIORITY 1: Hindi Male voices - specific names used across platforms
+    const hindiMaleNames = [
+      // Google voices
+      'google हिन्दी', 'google hindi',
+      // Microsoft voices  
+      'madhur', 'hemant', 'prabhat', 'microsoft madhur',
+      // Samsung voices
+      'samsung hindi male',
+      // Generic male indicators
+      'hindi male', 'hindi india male', 'male hindi',
+      // Android voices
+      'vani', // Some Android Hindi voices
+    ];
+    
+    const hindiMaleVoice = voices.find(v => {
+      const nameLower = v.name.toLowerCase();
+      const isHindi = v.lang === 'hi-IN' || v.lang.startsWith('hi');
+      const isMale = hindiMaleNames.some(name => nameLower.includes(name)) || 
+                     (!nameLower.includes('female') && !nameLower.includes('swara') && !nameLower.includes('lekha'));
+      return isHindi && isMale;
+    });
+    
     if (hindiMaleVoice) {
-      console.log('TTS: Using Hindi male voice:', hindiMaleVoice.name);
+      console.log('TTS: ✓ Using Hindi MALE voice:', hindiMaleVoice.name);
       return hindiMaleVoice;
     }
 
-    // 2. Any Hindi voice (hi-IN)
+    // PRIORITY 2: Any Hindi voice (hi-IN)
     const hindiVoice = voices.find(v => v.lang === 'hi-IN');
     if (hindiVoice) {
       console.log('TTS: Using Hindi voice:', hindiVoice.name);
       return hindiVoice;
     }
 
-    // 3. Hindi voice with different locale codes
+    // PRIORITY 3: Hindi with any locale
     const hindiAnyLocale = voices.find(v => v.lang.startsWith('hi'));
     if (hindiAnyLocale) {
-      console.log('TTS: Using Hindi (any locale) voice:', hindiAnyLocale.name);
+      console.log('TTS: Using Hindi (any locale):', hindiAnyLocale.name);
       return hindiAnyLocale;
     }
     
-    // 4. Indian English as fallback
+    // PRIORITY 4: Indian English male voice
+    const indianEnglishMale = voices.find(v => {
+      const nameLower = v.name.toLowerCase();
+      return v.lang === 'en-IN' && 
+             (nameLower.includes('ravi') || nameLower.includes('male') || 
+              (!nameLower.includes('female') && !nameLower.includes('heera')));
+    });
+    if (indianEnglishMale) {
+      console.log('TTS: Using Indian English male:', indianEnglishMale.name);
+      return indianEnglishMale;
+    }
+
+    // PRIORITY 5: Any Indian English
     const indianEnglish = voices.find(v => v.lang === 'en-IN');
     if (indianEnglish) {
-      console.log('TTS: Using Indian English voice:', indianEnglish.name);
+      console.log('TTS: Using Indian English:', indianEnglish.name);
       return indianEnglish;
     }
     
-    // 5. Any English voice (last resort)
+    // PRIORITY 6: Any English (last resort)
     const englishVoice = voices.find(v => v.lang.startsWith('en'));
     if (englishVoice) {
-      console.log('TTS: Fallback to English voice:', englishVoice.name);
+      console.log('TTS: Fallback to English:', englishVoice.name);
       return englishVoice;
     }
     
-    // 6. Default to first available voice
     console.log('TTS: Using default voice:', voices[0]?.name);
     return voices[0] || null;
   }, [availableVoices]);
