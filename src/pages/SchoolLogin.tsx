@@ -89,10 +89,17 @@ const SchoolLogin = () => {
       });
 
       if (error) {
-        throw error;
+        console.error("Function invoke error:", error);
+        toast({
+          title: t('msg.error'),
+          description: "Server error. Please try again.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
       }
 
-      if (data.rateLimited) {
+      if (data?.rateLimited) {
         setRateLimitWait(data.waitSeconds);
         toast({
           title: "Too Many Attempts",
@@ -103,7 +110,7 @@ const SchoolLogin = () => {
         return;
       }
 
-      if (data.error) {
+      if (data?.error) {
         toast({
           title: t('msg.error'),
           description: data.error,
@@ -113,7 +120,7 @@ const SchoolLogin = () => {
         return;
       }
 
-      if (data.success) {
+      if (data?.success) {
         localStorage.setItem("userType", "school");
         localStorage.setItem("schoolId", data.user.schoolId);
         localStorage.setItem("schoolUUID", data.user.id);
@@ -136,6 +143,12 @@ const SchoolLogin = () => {
           description: "School dashboard access granted.",
         });
         navigate("/school-dashboard");
+      } else {
+        toast({
+          title: t('msg.error'),
+          description: "Login failed. Please check credentials.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -144,9 +157,9 @@ const SchoolLogin = () => {
         description: "An error occurred. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   return (
