@@ -45,7 +45,14 @@ interface StudentWithSubscription {
     start_date: string;
     end_date: string | null;
     is_active: boolean;
-  }[];
+  }[] | {
+    plan: 'basic' | 'pro';
+    tts_used: number;
+    tts_limit: number;
+    start_date: string;
+    end_date: string | null;
+    is_active: boolean;
+  } | null;
   upgrade_requests: {
     id: string;
     status: 'pending' | 'approved' | 'rejected' | 'blocked';
@@ -126,14 +133,21 @@ export const StudentSubscriptionManagement = ({
   };
 
   const getSubscription = (student: StudentWithSubscription) => {
-    return student.subscriptions?.[0] || {
-      plan: 'basic',
-      tts_used: 0,
-      tts_limit: 150000,
-      start_date: null,
-      end_date: null,
-      is_active: true,
-    };
+    // Supabase returns one-to-one relations as object, not array
+    const sub = student.subscriptions;
+    if (Array.isArray(sub)) {
+      return sub[0] || defaultSub;
+    }
+    return sub || defaultSub;
+  };
+
+  const defaultSub = {
+    plan: 'basic' as const,
+    tts_used: 0,
+    tts_limit: 150000,
+    start_date: '',
+    end_date: null,
+    is_active: true,
   };
 
   const getDaysRemaining = (endDate: string | null) => {
