@@ -79,9 +79,10 @@ export const useNativeTTS = () => {
       .trim();
   }, []);
 
-  const splitIntoChunks = useCallback((text: string, maxLength: number = 2000): string[] => {
+  const splitIntoChunks = useCallback((text: string, maxLength: number = 350): string[] => {
     if (text.length <= maxLength) return [text];
-    const sentences = text.split(/(?<=[।.!?])\s+/);
+    // Split on Hindi purna viram, period, exclamation, question mark, or comma for smaller chunks
+    const sentences = text.split(/(?<=[।.!?,;])\s+/);
     const chunks: string[] = [];
     let currentChunk = '';
     for (const sentence of sentences) {
@@ -89,7 +90,23 @@ export const useNativeTTS = () => {
         currentChunk += (currentChunk ? ' ' : '') + sentence;
       } else {
         if (currentChunk) chunks.push(currentChunk);
-        currentChunk = sentence;
+        // If a single sentence is too long, split by words
+        if (sentence.length > maxLength) {
+          const words = sentence.split(/\s+/);
+          let wordChunk = '';
+          for (const word of words) {
+            if (wordChunk.length + word.length + 1 <= maxLength) {
+              wordChunk += (wordChunk ? ' ' : '') + word;
+            } else {
+              if (wordChunk) chunks.push(wordChunk);
+              wordChunk = word;
+            }
+          }
+          if (wordChunk) currentChunk = wordChunk;
+          else currentChunk = '';
+        } else {
+          currentChunk = sentence;
+        }
       }
     }
     if (currentChunk) chunks.push(currentChunk);
@@ -145,7 +162,7 @@ export const useNativeTTS = () => {
       }
 
       const startTime = Date.now();
-      const minExpectedDuration = 2500;
+      const minExpectedDuration = 1500;
       const utterance = new SpeechSynthesisUtterance(text);
       utteranceRef.current = utterance;
 
@@ -165,14 +182,33 @@ export const useNativeTTS = () => {
           settled = true;
           resolve({ completed: false, stoppedEarly: true, error: 'timeout' });
         }
-      }, Math.max(15000, text.length * 100));
+      }, Math.max(20000, text.length * 150));
+
+      // Resume watchdog - detect if Chrome silently stops speaking
+      const resumeWatchdog = setInterval(() => {
+        if (settled || isCancelledRef.current) {
+          clearInterval(resumeWatchdog);
+          return;
+        }
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          // Speech stopped unexpectedly
+          clearInterval(resumeWatchdog);
+          if (!settled) {
+            settled = true;
+            clearTimeout(safetyTimeout);
+            const elapsed = Date.now() - startTime;
+            const stoppedEarly = text.length > 50 && elapsed < minExpectedDuration;
+            resolve({ completed: true, stoppedEarly });
+          }
+        }
+      }, 500);
 
       utterance.onend = () => {
         if (settled) return;
         settled = true;
         clearTimeout(safetyTimeout);
         const elapsed = Date.now() - startTime;
-        const stoppedEarly = text.length > 100 && elapsed < minExpectedDuration;
+        const stoppedEarly = text.length > 50 && elapsed < minExpectedDuration;
         resolve({ completed: true, stoppedEarly });
       };
 
@@ -209,62 +245,40 @@ export const useNativeTTS = () => {
     }
     if (!voice) voice = getBestVoice();
 
-    const chunks = splitIntoChunks(cleanText, 2000);
+    const chunks = splitIntoChunks(cleanText, 350);
     chunksRef.current = chunks;
     currentChunkIndexRef.current = 0;
 
-    console.log(`TTS Web: Starting ${chunks.length} chunks`);
+    console.log(`TTS Web: Starting ${chunks.length} chunks (avg ${Math.round(cleanText.length / chunks.length)} chars each)`);
     setActiveEngine('web');
 
-    // Heartbeat to prevent Chrome pausing long speech
+    // Heartbeat to prevent Chrome pausing long speech (every 5s)
     heartbeatRef.current = setInterval(() => {
       if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
         window.speechSynthesis.pause();
         window.speechSynthesis.resume();
       }
-    }, 8000);
-
-    let consecutiveEarlyStops = 0;
+    }, 5000);
 
     for (let i = 0; i < chunks.length; i++) {
       if (isCancelledRef.current) break;
       currentChunkIndexRef.current = i;
       const chunkText = chunks[i];
 
-      if (consecutiveEarlyStops >= 1 && chunkText.length > 200) {
-        const subChunks = splitIntoChunks(chunkText, 200);
-        for (const subChunk of subChunks) {
-          if (isCancelledRef.current) break;
-          const result = await speakChunkWeb(subChunk, voice, rate, pitch, volume);
-          if (result.stoppedEarly) {
-            window.speechSynthesis.cancel();
-            await new Promise(r => setTimeout(r, 100));
-            await speakChunkWeb(subChunk, voice, rate, pitch, volume);
-          }
-          if (!isCancelledRef.current) await new Promise(r => setTimeout(r, 50));
-        }
-      } else {
-        const result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+      const result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
 
-        if (result.stoppedEarly) {
-          consecutiveEarlyStops++;
-          if (consecutiveEarlyStops <= 2) {
-            window.speechSynthesis.cancel();
-            await new Promise(r => setTimeout(r, 100));
-            const subChunks = splitIntoChunks(chunkText, 200);
-            for (const subChunk of subChunks) {
-              if (isCancelledRef.current) break;
-              await speakChunkWeb(subChunk, voice, rate, pitch, volume);
-              await new Promise(r => setTimeout(r, 50));
-            }
-          }
-        } else {
-          consecutiveEarlyStops = 0;
+      if (result.stoppedEarly) {
+        // Retry once with a fresh cancel + small delay
+        window.speechSynthesis.cancel();
+        await new Promise(r => setTimeout(r, 150));
+        if (!isCancelledRef.current) {
+          await speakChunkWeb(chunkText, voice, rate, pitch, volume);
         }
       }
 
+      // Small gap between chunks for smooth playback
       if (i < chunks.length - 1 && !isCancelledRef.current) {
-        await new Promise(r => setTimeout(r, 30));
+        await new Promise(r => setTimeout(r, 80));
       }
     }
 
