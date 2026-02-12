@@ -79,7 +79,7 @@ export const useNativeTTS = () => {
       .trim();
   }, []);
 
-  const splitIntoChunks = useCallback((text: string, maxLength: number = 350): string[] => {
+  const splitIntoChunks = useCallback((text: string, maxLength: number = 180): string[] => {
     if (text.length <= maxLength) return [text];
     // Split on Hindi purna viram, period, exclamation, question mark, or comma for smaller chunks
     const sentences = text.split(/(?<=[।.!?,;])\s+/);
@@ -162,7 +162,7 @@ export const useNativeTTS = () => {
       }
 
       const startTime = Date.now();
-      const minExpectedDuration = 1500;
+      const minExpectedDuration = 800;
       const utterance = new SpeechSynthesisUtterance(text);
       utteranceRef.current = utterance;
 
@@ -245,20 +245,20 @@ export const useNativeTTS = () => {
     }
     if (!voice) voice = getBestVoice();
 
-    const chunks = splitIntoChunks(cleanText, 350);
+    const chunks = splitIntoChunks(cleanText, 180);
     chunksRef.current = chunks;
     currentChunkIndexRef.current = 0;
 
     console.log(`TTS Web: Starting ${chunks.length} chunks (avg ${Math.round(cleanText.length / chunks.length)} chars each)`);
     setActiveEngine('web');
 
-    // Heartbeat to prevent Chrome pausing long speech (every 5s)
+    // Heartbeat to prevent Chrome pausing long speech (every 3s)
     heartbeatRef.current = setInterval(() => {
-      if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+      if (window.speechSynthesis.speaking) {
         window.speechSynthesis.pause();
-        window.speechSynthesis.resume();
+        setTimeout(() => window.speechSynthesis.resume(), 50);
       }
-    }, 5000);
+    }, 3000);
 
     for (let i = 0; i < chunks.length; i++) {
       if (isCancelledRef.current) break;
@@ -267,18 +267,20 @@ export const useNativeTTS = () => {
 
       const result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
 
-      if (result.stoppedEarly) {
-        // Retry once with a fresh cancel + small delay
-        window.speechSynthesis.cancel();
-        await new Promise(r => setTimeout(r, 150));
-        if (!isCancelledRef.current) {
-          await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+      if (result.stoppedEarly || result.error) {
+        // Retry up to 2 times with fresh cancel
+        for (let retry = 0; retry < 2 && !isCancelledRef.current; retry++) {
+          window.speechSynthesis.cancel();
+          await new Promise(r => setTimeout(r, 200 + retry * 100));
+          const retryResult = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+          if (retryResult.completed && !retryResult.stoppedEarly) break;
         }
       }
 
-      // Small gap between chunks for smooth playback
+      // Gap between chunks - Chrome needs breathing room
       if (i < chunks.length - 1 && !isCancelledRef.current) {
-        await new Promise(r => setTimeout(r, 80));
+        window.speechSynthesis.cancel();
+        await new Promise(r => setTimeout(r, 120));
       }
     }
 
