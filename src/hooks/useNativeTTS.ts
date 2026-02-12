@@ -161,8 +161,6 @@ export const useNativeTTS = () => {
         return;
       }
 
-      const startTime = Date.now();
-      const minExpectedDuration = 500;
       const utterance = new SpeechSynthesisUtterance(text);
       utteranceRef.current = utterance;
 
@@ -185,41 +183,56 @@ export const useNativeTTS = () => {
         resolve(result);
       };
 
+      // Safety timeout - very generous to avoid cutting speech
       const safetyTimeout = setTimeout(() => {
-        settle({ completed: false, stoppedEarly: true, error: 'timeout' });
-      }, Math.max(30000, text.length * 200));
+        console.warn('TTS: chunk safety timeout fired');
+        settle({ completed: true, stoppedEarly: false });
+      }, Math.max(60000, text.length * 300));
 
-      // Watchdog: detect if Chrome silently stops
+      // Watchdog: detect if engine silently stopped (wait 1.5s of silence before declaring done)
+      let silentSince = 0;
       const resumeWatchdog = setInterval(() => {
         if (settled || isCancelledRef.current) {
           clearInterval(resumeWatchdog);
           return;
         }
         if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
-          const elapsed = Date.now() - startTime;
-          const stoppedEarly = text.length > 30 && elapsed < minExpectedDuration;
-          settle({ completed: true, stoppedEarly });
+          if (silentSince === 0) {
+            silentSince = Date.now();
+          } else if (Date.now() - silentSince > 1500) {
+            // Engine has been silent for 1.5s - it's done or stuck
+            settle({ completed: true, stoppedEarly: false });
+          }
+        } else {
+          silentSince = 0; // Reset - engine is speaking
         }
-      }, 300);
+      }, 400);
 
       utterance.onend = () => {
-        const elapsed = Date.now() - startTime;
-        const stoppedEarly = text.length > 30 && elapsed < minExpectedDuration;
-        settle({ completed: true, stoppedEarly });
+        settle({ completed: true, stoppedEarly: false });
       };
 
       utterance.onerror = (event) => {
         if (event.error === 'interrupted' || event.error === 'canceled') {
-          // These are expected when we cancel between chunks - not real errors
           settle({ completed: true, stoppedEarly: false });
           return;
         }
-        console.error('TTS Web chunk error:', event.error);
+        // On Android WebView, 'not-allowed' often fires on first attempt
+        // Don't treat it as fatal - let retry logic handle it
+        console.warn('TTS Web chunk error:', event.error);
         settle({ completed: false, stoppedEarly: false, error: event.error });
       };
 
       try {
         window.speechSynthesis.speak(utterance);
+        
+        // Android WebView fix: check if speech actually started after 2s
+        setTimeout(() => {
+          if (!settled && !window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+            console.warn('TTS: Speech never started, resolving chunk');
+            settle({ completed: false, stoppedEarly: true, error: 'never-started' });
+          }
+        }, 2000);
       } catch (e) {
         settle({ completed: false, stoppedEarly: false, error: String(e) });
       }
@@ -231,69 +244,90 @@ export const useNativeTTS = () => {
   ): Promise<boolean> => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
 
+    // Ensure engine is clean before starting
+    window.speechSynthesis.cancel();
+    await new Promise(r => setTimeout(r, 200));
+
     const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // On some Android devices, voices load late - wait and retry
+      await new Promise(r => setTimeout(r, 500));
+      window.speechSynthesis.getVoices(); // trigger load
+      await new Promise(r => setTimeout(r, 300));
+    }
 
     let voice: SpeechSynthesisVoice | null = null;
     if (voiceName) {
-      voice = voices.find(v => v.name === voiceName) || null;
+      voice = (voices.length > 0 ? voices : window.speechSynthesis.getVoices()).find(v => v.name === voiceName) || null;
     }
     if (!voice) voice = getBestVoice();
 
-    // Use 200 char chunks - small enough for Chrome stability, large enough for smooth flow
-    const chunks = splitIntoChunks(cleanText, 200);
+    // 150 char chunks - very stable on Android WebView + Chrome
+    const chunks = splitIntoChunks(cleanText, 150);
     chunksRef.current = chunks;
     currentChunkIndexRef.current = 0;
 
-    console.log(`TTS Web: Starting ${chunks.length} chunks for ~${cleanText.split(/\s+/).length} words`);
+    console.log(`TTS Web: Starting ${chunks.length} chunks, voice: ${voice?.name || 'default'}`);
     setActiveEngine('web');
 
-    // Chrome pause bug workaround: heartbeat every 4s
+    // Chrome pause bug workaround: heartbeat every 5s
     heartbeatRef.current = setInterval(() => {
       if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
         window.speechSynthesis.pause();
-        setTimeout(() => window.speechSynthesis.resume(), 30);
+        setTimeout(() => window.speechSynthesis.resume(), 50);
       }
-    }, 4000);
+    }, 5000);
 
     let consecutiveFailures = 0;
-    const MAX_CONSECUTIVE_FAILURES = 3;
+    const MAX_CONSECUTIVE_FAILURES = 5; // More forgiving
+    let anyChunkSpoke = false;
 
     for (let i = 0; i < chunks.length; i++) {
       if (isCancelledRef.current) break;
       currentChunkIndexRef.current = i;
       const chunkText = chunks[i];
 
-      const result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+      let result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
 
-      if (result.stoppedEarly || result.error) {
+      if (!result.completed || result.error) {
         consecutiveFailures++;
+        console.warn(`TTS: Chunk ${i} failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}): ${result.error}`);
+        
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           console.error('TTS: Too many consecutive failures, stopping');
           break;
         }
-        // Retry this chunk with a fresh engine reset
+
+        // Reset engine completely and retry
         window.speechSynthesis.cancel();
-        await new Promise(r => setTimeout(r, 250));
+        await new Promise(r => setTimeout(r, 300 + consecutiveFailures * 200));
+        
         if (!isCancelledRef.current) {
-          const retryResult = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
-          if (!retryResult.completed || retryResult.stoppedEarly) {
-            // Second retry with longer pause
-            window.speechSynthesis.cancel();
-            await new Promise(r => setTimeout(r, 500));
-            if (!isCancelledRef.current) {
-              await speakChunkWeb(chunkText, voice, rate, pitch, volume);
-            }
+          result = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+          if (result.completed && !result.error) {
+            consecutiveFailures = 0;
+            anyChunkSpoke = true;
           } else {
-            consecutiveFailures = 0; // Reset on success
+            // One more retry with even longer delay
+            window.speechSynthesis.cancel();
+            await new Promise(r => setTimeout(r, 800));
+            if (!isCancelledRef.current) {
+              const finalRetry = await speakChunkWeb(chunkText, voice, rate, pitch, volume);
+              if (finalRetry.completed && !finalRetry.error) {
+                consecutiveFailures = 0;
+                anyChunkSpoke = true;
+              }
+            }
           }
         }
       } else {
-        consecutiveFailures = 0; // Reset on success
+        consecutiveFailures = 0;
+        anyChunkSpoke = true;
       }
 
-      // Seamless transition: NO cancel between chunks, just tiny delay
+      // Small gap between chunks for engine stability
       if (i < chunks.length - 1 && !isCancelledRef.current) {
-        await new Promise(r => setTimeout(r, 30));
+        await new Promise(r => setTimeout(r, 50));
       }
     }
 
@@ -302,51 +336,9 @@ export const useNativeTTS = () => {
       heartbeatRef.current = null;
     }
 
-    return true;
+    // Return true if at least some chunks spoke successfully
+    return anyChunkSpoke || chunks.length === 0;
   }, [getBestVoice, splitIntoChunks, speakChunkWeb]);
-
-  // ============= MAIN SPEAK FUNCTION =============
-  // Simple: Web Speech API only, no character limit
-  const speak = useCallback((options: TTSOptions): Promise<{ success: boolean; engine: ActiveEngine; error?: string }> => {
-    const { text, rate = 0.9, pitch = 1.0, volume = 1.0, voiceName } = options;
-
-    return (async () => {
-      if (!isSupported) {
-        return { success: false, engine: 'none' as ActiveEngine, error: 'TTS not supported on this device' };
-      }
-
-      const cleanText = sanitizeText(text);
-      if (!cleanText) {
-        return { success: true, engine: 'none' as ActiveEngine };
-      }
-
-      // Cancel any ongoing speech
-      stop();
-      isCancelledRef.current = false;
-      await new Promise(r => setTimeout(r, 60));
-
-      setIsSpeaking(true);
-
-      try {
-        const webSuccess = await tryWebSpeech(cleanText, rate, pitch, volume, voiceName || selectedVoiceName);
-        if (webSuccess && !isCancelledRef.current) {
-          return { success: true, engine: 'web' as ActiveEngine };
-        }
-
-        // Web Speech failed
-        console.error('TTS: ❌ Web Speech failed!');
-        setActiveEngine('none');
-        return {
-          success: false,
-          engine: 'none' as ActiveEngine,
-          error: 'Voice playback failed. Device may not support TTS.'
-        };
-      } finally {
-        setIsSpeaking(false);
-        utteranceRef.current = null;
-      }
-    })();
-  }, [isSupported, sanitizeText, selectedVoiceName, tryWebSpeech]);
 
   const stop = useCallback(() => {
     isCancelledRef.current = true;
@@ -363,6 +355,51 @@ export const useNativeTTS = () => {
     setIsSpeaking(false);
     setActiveEngine('none');
   }, []);
+
+  // ============= MAIN SPEAK FUNCTION =============
+  const speak = useCallback((options: TTSOptions): Promise<{ success: boolean; engine: ActiveEngine; error?: string }> => {
+    const { text, rate = 0.9, pitch = 1.0, volume = 1.0, voiceName } = options;
+
+    return (async () => {
+      if (!isSupported) {
+        return { success: false, engine: 'none' as ActiveEngine, error: 'TTS not supported on this device' };
+      }
+
+      const cleanText = sanitizeText(text);
+      if (!cleanText) {
+        return { success: true, engine: 'none' as ActiveEngine };
+      }
+
+      // Cancel any ongoing speech
+      stop();
+      isCancelledRef.current = false;
+      
+      // Give engine time to fully reset - critical on Android WebView
+      await new Promise(r => setTimeout(r, 150));
+
+      setIsSpeaking(true);
+
+      try {
+        const webSuccess = await tryWebSpeech(cleanText, rate, pitch, volume, voiceName || selectedVoiceName);
+        if (webSuccess && !isCancelledRef.current) {
+          return { success: true, engine: 'web' as ActiveEngine };
+        }
+
+        console.error('TTS: ❌ Web Speech failed');
+        setActiveEngine('none');
+        return {
+          success: false,
+          engine: 'none' as ActiveEngine,
+          error: 'Voice not available on this device'
+        };
+      } finally {
+        if (!isCancelledRef.current) {
+          setIsSpeaking(false);
+        }
+        utteranceRef.current = null;
+      }
+    })();
+  }, [isSupported, sanitizeText, selectedVoiceName, tryWebSpeech, stop]);
 
   const getHindiVoices = useCallback((): SpeechSynthesisVoice[] => {
     const voices = availableVoices.length > 0
