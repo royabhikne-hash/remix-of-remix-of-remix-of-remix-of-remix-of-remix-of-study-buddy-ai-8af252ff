@@ -372,29 +372,7 @@ const StudyChat = ({ onEndStudy, studentId, studentClass = "10", studentBoard = 
     }
   }, [ttsSupported, speakingMessageId, voiceSpeed, speechifySpeak, stopTTS, autoSpeak, toast]);
 
-  // Function to speak quiz question with correct numbering
-  const speakQuizQuestion = useCallback((question: QuizQuestion, questionNumber?: number) => {
-    if (!autoSpeak || !ttsSupported) return;
-    
-    const qNum = questionNumber ?? (currentQuestionIndex + 1);
-    let questionText = `Question ${qNum} of ${quizQuestions.length || 5}. ${question.question}`;
-    
-    // Add options for MCQ
-    if (question.type === "mcq" && question.options) {
-      questionText += ". Options hain: ";
-      question.options.forEach((opt, idx) => {
-        questionText += `${String.fromCharCode(65 + idx)}, ${opt}. `;
-      });
-    } else if (question.type === "true_false") {
-      questionText += ". True ya False batao.";
-    } else {
-      questionText += ". Apna jawab likho.";
-    }
-    
-    setTimeout(() => {
-      speakText(questionText, `quiz-q-${question.id}`, true);
-    }, 500);
-  }, [autoSpeak, ttsSupported, currentQuestionIndex, quizQuestions.length, speakText]);
+  // Quiz TTS removed - no voice in quiz mode
 
   const getAIResponse = async (conversationHistory: ChatMessage[]) => {
     try {
@@ -640,17 +618,7 @@ const StudyChat = ({ onEndStudy, studentId, studentClass = "10", studentBoard = 
         };
         setMessages(prev => [...prev, quizIntro]);
         
-          // Speak intro and first question after delay
-          if (autoSpeak) {
-            setTimeout(() => {
-              speakText(introMessage, `quiz-intro-${Date.now()}`, true);
-            }, 300);
-            
-            // Speak first question after intro - use question number 1
-            setTimeout(() => {
-              speakQuizQuestion(data.quiz.questions[0], 1);
-            }, 4000);
-          }
+          // TTS removed from quiz mode
       } else {
         finishStudySession();
       }
@@ -746,10 +714,7 @@ const StudyChat = ({ onEndStudy, studentId, studentClass = "10", studentBoard = 
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
       
-      // Speak the next question with correct number
-      if (quizQuestions[nextIndex]) {
-        speakQuizQuestion(quizQuestions[nextIndex], nextIndex + 1);
-      }
+      // TTS removed from quiz mode
     } else {
       calculateQuizResults();
     }
