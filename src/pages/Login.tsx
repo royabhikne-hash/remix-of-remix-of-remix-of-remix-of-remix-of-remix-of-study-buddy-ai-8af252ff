@@ -77,7 +77,24 @@ const Login = () => {
       const { error } = await signIn(email, password);
       
       if (error) {
-        if (error.message.includes("Invalid login credentials")) {
+        // Ignore abort errors (caused by rapid taps or component unmount)
+        if (error.message?.includes('signal is aborted') || error.message?.includes('AbortError')) {
+          console.log('Login: Ignoring abort signal, retrying...');
+          // Retry once after a small delay
+          try {
+            const retryResult = await signIn(email, password);
+            if (retryResult.error) {
+              throw retryResult.error;
+            }
+          } catch (retryErr: any) {
+            if (retryErr.message?.includes('signal is aborted') || retryErr.message?.includes('AbortError')) {
+              // Still aborted, just ignore - likely a network issue
+              setIsLoading(false);
+              return;
+            }
+            throw retryErr;
+          }
+        } else if (error.message.includes("Invalid login credentials")) {
           toast({
             title: language === 'en' ? "Login Failed" : "लॉगिन फेल",
             description: language === 'en' ? "Invalid email or password. Please try again." : "गलत ईमेल या पासवर्ड।",
