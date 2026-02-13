@@ -249,11 +249,18 @@ const SchoolDashboard = () => {
         
         const formattedStudents: StudentData[] = data.students.map((student: any) => {
           const studentSessions = student.study_sessions || [];
-          const quizAttempts = student.quiz_attempts || [];
+          // Extract quiz attempts from nested study_sessions.quiz_attempts
+          const allQuizAttempts: any[] = [];
+          studentSessions.forEach((s: any) => {
+            if (s.quiz_attempts && Array.isArray(s.quiz_attempts)) {
+              allQuizAttempts.push(...s.quiz_attempts);
+            }
+          });
+          
           const todaySessions = studentSessions.filter((s: any) => 
             new Date(s.created_at).toDateString() === today
           );
-          const latestSession = todaySessions[0];
+          const latestSession = todaySessions[0] || studentSessions[0];
 
           // Calculate trend based on recent scores
           const recentScores = studentSessions.slice(0, 5).map((s: any) => s.improvement_score || 50);
@@ -265,8 +272,8 @@ const SchoolDashboard = () => {
             else if (avg1 < avg2 - 5) trend = "down";
           }
 
-          // Calculate quiz accuracy
-          const recentQuizzes = quizAttempts.slice(0, 10);
+          // Calculate quiz accuracy from extracted quiz attempts
+          const recentQuizzes = allQuizAttempts.slice(0, 10);
           const quizAccuracy = recentQuizzes.length > 0
             ? Math.round(recentQuizzes.reduce((acc: number, q: any) => acc + (q.accuracy_percentage || 0), 0) / recentQuizzes.length)
             : 0;
