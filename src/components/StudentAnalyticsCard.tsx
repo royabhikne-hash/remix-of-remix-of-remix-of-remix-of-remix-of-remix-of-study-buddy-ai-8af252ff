@@ -96,7 +96,7 @@ const StudentAnalyticsCard = ({
             </CardTitle>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="secondary" className="text-xs">
-                Class {studentClass}
+                {studentClass}
               </Badge>
               <Badge 
                 variant="outline" 
