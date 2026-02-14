@@ -742,12 +742,10 @@ const StudentReportModal = ({
       const margin = 15;
       const contentWidth = pageWidth - margin * 2;
 
-      // Helper function to add new page if needed
       const checkPageBreak = (requiredSpace: number) => {
         if (yPos + requiredSpace > pageHeight - 25) {
           pdf.addPage();
           yPos = 20;
-          // Add header on new page
           pdf.setFontSize(8);
           pdf.setTextColor(128, 128, 128);
           pdf.text("Study Buddy AI - Student Progress Report", margin, 10);
@@ -756,42 +754,34 @@ const StudentReportModal = ({
         }
       };
 
-      // Header with branding
-      pdf.setFillColor(59, 130, 246); // Primary blue
+      // ===== HEADER =====
+      pdf.setFillColor(59, 130, 246);
       pdf.rect(0, 0, pageWidth, 35, "F");
-      
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(22);
       pdf.setFont("helvetica", "bold");
       pdf.text("Study Buddy AI", margin, 15);
-      
       pdf.setFontSize(12);
       pdf.setFont("helvetica", "normal");
       pdf.text("Weekly Progress Report", margin, 23);
-      
-      // School info on header
       if (schoolInfo) {
         pdf.setFontSize(10);
         pdf.text(schoolInfo.name, pageWidth - margin, 15, { align: "right" });
         pdf.setFontSize(8);
         pdf.text(`${schoolInfo.district || ""}, ${schoolInfo.state || ""}`, pageWidth - margin, 21, { align: "right" });
       }
-
-      pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(8);
       pdf.text(`Generated: ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`, margin, 31);
 
       yPos = 45;
       pdf.setTextColor(0, 0, 0);
 
-      // Student Info Card
+      // ===== STUDENT INFO =====
       pdf.setFillColor(245, 247, 250);
       pdf.roundedRect(margin, yPos, contentWidth, 28, 3, 3, "F");
-      
       pdf.setFontSize(16);
       pdf.setFont("helvetica", "bold");
       pdf.text(studentName, margin + 5, yPos + 10);
-      
       pdf.setFontSize(10);
       pdf.setFont("helvetica", "normal");
       pdf.setTextColor(100, 100, 100);
@@ -799,95 +789,276 @@ const StudentReportModal = ({
       pdf.text(`Report Period: Last 7 Days`, margin + 5, yPos + 24);
 
       // Grade badge
-      pdf.setFillColor(
-        gradeInfo.color === "#22c55e" ? 34 : gradeInfo.color === "#3b82f6" ? 59 : gradeInfo.color === "#f59e0b" ? 245 : 239,
-        gradeInfo.color === "#22c55e" ? 197 : gradeInfo.color === "#3b82f6" ? 130 : gradeInfo.color === "#f59e0b" ? 158 : 68,
-        gradeInfo.color === "#22c55e" ? 94 : gradeInfo.color === "#3b82f6" ? 246 : gradeInfo.color === "#f59e0b" ? 11 : 68
-      );
+      const gradeColors: Record<string, { r: number; g: number; b: number }> = {
+        "#22c55e": { r: 34, g: 197, b: 94 },
+        "#3b82f6": { r: 59, g: 130, b: 246 },
+        "#f59e0b": { r: 245, g: 158, b: 11 },
+        "#ef4444": { r: 239, g: 68, b: 68 },
+      };
+      const gc = gradeColors[gradeInfo.color] || { r: 59, g: 130, b: 246 };
+      pdf.setFillColor(gc.r, gc.g, gc.b);
       pdf.circle(pageWidth - margin - 15, yPos + 14, 12, "F");
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(14);
       pdf.setFont("helvetica", "bold");
       pdf.text(gradeInfo.grade, pageWidth - margin - 15, yPos + 18, { align: "center" });
-      
       pdf.setTextColor(0, 0, 0);
       pdf.setFontSize(8);
       pdf.text(gradeInfo.label, pageWidth - margin - 15, yPos + 26, { align: "center" });
 
       yPos += 35;
 
-      // Overall Trend Banner
+      // ===== TREND BANNER =====
       const trendColor = overallTrend === "up" ? { r: 34, g: 197, b: 94 } : overallTrend === "down" ? { r: 239, g: 68, b: 68 } : { r: 156, g: 163, b: 175 };
       pdf.setFillColor(trendColor.r, trendColor.g, trendColor.b);
       pdf.roundedRect(margin, yPos, contentWidth, 12, 2, 2, "F");
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(10);
       pdf.setFont("helvetica", "bold");
-      const trendText = overallTrend === "up" ? "📈 IMPROVING - Keep up the great work!" : overallTrend === "down" ? "📉 DECLINING - Needs more focus" : "➡️ STABLE - Consistent performance";
+      const trendText = overallTrend === "up" ? "IMPROVING - Keep up the great work!" : overallTrend === "down" ? "DECLINING - Needs more focus" : "STABLE - Consistent performance";
       pdf.text(trendText, pageWidth / 2, yPos + 8, { align: "center" });
-      
       yPos += 18;
       pdf.setTextColor(0, 0, 0);
 
-      // Weekly Summary Section
+      // ===== WEEKLY SUMMARY STATS =====
       pdf.setFontSize(14);
       pdf.setFont("helvetica", "bold");
       pdf.text("Weekly Summary", margin, yPos);
       yPos += 8;
 
-      // Stats boxes
-      const boxWidth = (contentWidth - 15) / 4;
-      const stats = [
+      const boxWidth = (contentWidth - 20) / 5;
+      const allStats = [
         { label: "Sessions", value: weeklyStats.totalSessions.toString(), color: { r: 59, g: 130, b: 246 } },
         { label: "Study Time", value: `${Math.round(weeklyStats.totalTimeSpent / 60)}m`, color: { r: 34, g: 197, b: 94 } },
         { label: "Quizzes", value: weeklyStats.totalQuizzes.toString(), color: { r: 168, g: 85, b: 247 } },
         { label: "Accuracy", value: `${weeklyStats.avgAccuracy}%`, color: { r: 245, g: 158, b: 11 } },
+        { label: "Avg Score", value: `${weeklyStats.avgImprovementScore}%`, color: { r: 239, g: 68, b: 68 } },
       ];
 
-      stats.forEach((stat, i) => {
+      allStats.forEach((stat, i) => {
         const x = margin + (boxWidth + 5) * i;
         pdf.setFillColor(stat.color.r, stat.color.g, stat.color.b);
         pdf.roundedRect(x, yPos, boxWidth, 22, 2, 2, "F");
         pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(16);
+        pdf.setFontSize(14);
         pdf.setFont("helvetica", "bold");
         pdf.text(stat.value, x + boxWidth / 2, yPos + 10, { align: "center" });
-        pdf.setFontSize(8);
+        pdf.setFontSize(7);
         pdf.setFont("helvetica", "normal");
-        pdf.text(stat.label, x + boxWidth / 2, yPos + 18, { align: "center" });
+        pdf.text(stat.label, x + boxWidth / 2, yPos + 17, { align: "center" });
       });
-
       yPos += 30;
       pdf.setTextColor(0, 0, 0);
 
-      // Class Comparison
+      // ===== ENGAGEMENT SCORE & STREAK =====
+      checkPageBreak(35);
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Engagement & Consistency", margin, yPos);
+      yPos += 8;
+
+      // Engagement score box
+      const halfWidth = (contentWidth - 5) / 2;
+      pdf.setFillColor(240, 245, 255);
+      pdf.roundedRect(margin, yPos, halfWidth, 25, 2, 2, "F");
+      pdf.setFontSize(9);
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(59, 130, 246);
+      pdf.text("Engagement Score", margin + 5, yPos + 8);
+      pdf.setFontSize(20);
+      pdf.text(`${engagementScore}/100`, margin + 5, yPos + 20);
+      
+      // Streak box
+      pdf.setFillColor(255, 243, 230);
+      pdf.roundedRect(margin + halfWidth + 5, yPos, halfWidth, 25, 2, 2, "F");
+      pdf.setTextColor(245, 158, 11);
+      pdf.setFontSize(9);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Study Streak", margin + halfWidth + 10, yPos + 8);
+      pdf.setFontSize(20);
+      pdf.text(`${studyStreak.currentStreak} days`, margin + halfWidth + 10, yPos + 20);
+      pdf.setFontSize(8);
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(128, 128, 128);
+      
+      yPos += 30;
+      pdf.setTextColor(0, 0, 0);
+
+      // ===== DAILY BREAKDOWN =====
+      checkPageBreak(40);
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Daily Breakdown (Last 7 Days)", margin, yPos);
+      yPos += 8;
+
+      const dayBoxWidth = (contentWidth - 6 * 3) / 7;
+      dailyBreakdown.forEach((day, i) => {
+        const x = margin + (dayBoxWidth + 3) * i;
+        const hasSessions = day.sessions > 0;
+        if (hasSessions) {
+          pdf.setFillColor(230, 255, 230);
+        } else {
+          pdf.setFillColor(245, 245, 245);
+        }
+        pdf.roundedRect(x, yPos, dayBoxWidth, 28, 2, 2, "F");
+        pdf.setTextColor(100, 100, 100);
+        pdf.setFontSize(7);
+        pdf.setFont("helvetica", "bold");
+        pdf.text(day.day, x + dayBoxWidth / 2, yPos + 6, { align: "center" });
+        pdf.setFontSize(6);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(day.date, x + dayBoxWidth / 2, yPos + 11, { align: "center" });
+        if (hasSessions) {
+          pdf.setTextColor(34, 197, 94);
+          pdf.setFontSize(12);
+          pdf.setFont("helvetica", "bold");
+          pdf.text(`${day.sessions}`, x + dayBoxWidth / 2, yPos + 20, { align: "center" });
+          pdf.setFontSize(5);
+          pdf.setFont("helvetica", "normal");
+          pdf.text(`${Math.round(day.timeSpent / 60)}m`, x + dayBoxWidth / 2, yPos + 25, { align: "center" });
+        } else {
+          pdf.setTextColor(180, 180, 180);
+          pdf.setFontSize(14);
+          pdf.text("-", x + dayBoxWidth / 2, yPos + 20, { align: "center" });
+        }
+      });
+      yPos += 35;
+      pdf.setTextColor(0, 0, 0);
+
+      // ===== LEARNING PATTERNS =====
+      checkPageBreak(30);
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Learning Patterns (Study Time Preference)", margin, yPos);
+      yPos += 8;
+      
+      const patternLabels = [
+        { key: "morning", label: "Morning (5-12)", emoji: "AM" },
+        { key: "afternoon", label: "Afternoon (12-5)", emoji: "PM" },
+        { key: "evening", label: "Evening (5-9)", emoji: "EVE" },
+        { key: "night", label: "Night (9-5)", emoji: "NT" },
+      ];
+      
+      pdf.setFontSize(9);
+      pdf.setFont("helvetica", "normal");
+      patternLabels.forEach((p) => {
+        const val = learningPatterns[p.key as keyof typeof learningPatterns];
+        const isPreferred = preferredStudyTime && preferredStudyTime[0] === p.key;
+        if (isPreferred) {
+          pdf.setTextColor(59, 130, 246);
+          pdf.setFont("helvetica", "bold");
+          pdf.text(`★ ${p.label}: ${val} sessions (Preferred Time!)`, margin + 5, yPos);
+        } else {
+          pdf.setTextColor(80, 80, 80);
+          pdf.setFont("helvetica", "normal");
+          pdf.text(`  ${p.label}: ${val} sessions`, margin + 5, yPos);
+        }
+        yPos += lineHeight;
+      });
+      yPos += 5;
+      pdf.setTextColor(0, 0, 0);
+
+      // ===== CLASS COMPARISON =====
       if (classAverages) {
-        checkPageBreak(25);
+        checkPageBreak(30);
         pdf.setFontSize(12);
         pdf.setFont("helvetica", "bold");
         pdf.text("Comparison with Class Average", margin, yPos);
-        yPos += 7;
+        yPos += 8;
         
         pdf.setFontSize(9);
-        pdf.setFont("helvetica", "normal");
-        
         const comparisons = [
           { label: "Sessions", student: weeklyStats.totalSessions, classAvg: classAverages.avgSessions },
           { label: "Study Time (min)", student: Math.round(weeklyStats.totalTimeSpent / 60), classAvg: Math.round(classAverages.avgTimeSpent / 60) },
           { label: "Accuracy", student: weeklyStats.avgAccuracy, classAvg: classAverages.avgAccuracy },
+          { label: "Quizzes", student: weeklyStats.totalQuizzes, classAvg: classAverages.avgQuizzes },
         ];
 
         comparisons.forEach((comp) => {
           const isAbove = comp.student >= comp.classAvg;
           pdf.setTextColor(isAbove ? 34 : 239, isAbove ? 197 : 68, isAbove ? 94 : 68);
+          pdf.setFont("helvetica", "bold");
           const symbol = isAbove ? "▲" : "▼";
-          pdf.text(`${symbol} ${comp.label}: ${comp.student} (Class Avg: ${comp.classAvg})`, margin + 5, yPos);
+          pdf.text(`${symbol} ${comp.label}: You: ${comp.student} | Class Avg: ${comp.classAvg}`, margin + 5, yPos);
           yPos += lineHeight;
         });
         yPos += 5;
       }
 
-      // Subjects Studied
+      // ===== QUIZ ANALYTICS =====
+      if (quizAnalytics) {
+        checkPageBreak(35);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(12);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Detailed Quiz Analytics", margin, yPos);
+        yPos += 8;
+
+        const qBoxW = (contentWidth - 15) / 4;
+        const quizStats = [
+          { label: "Total Correct", value: `${quizAnalytics.totalCorrect}/${quizAnalytics.totalQuestions}`, color: { r: 59, g: 130, b: 246 } },
+          { label: "Avg Accuracy", value: `${quizAnalytics.avgAccuracy}%`, color: { r: 34, g: 197, b: 94 } },
+          { label: "Best Quiz", value: `${quizAnalytics.bestQuiz}%`, color: { r: 34, g: 197, b: 94 } },
+          { label: "Pass Rate", value: `${quizAnalytics.passRate}%`, color: { r: 245, g: 158, b: 11 } },
+        ];
+
+        quizStats.forEach((stat, i) => {
+          const x = margin + (qBoxW + 5) * i;
+          pdf.setFillColor(stat.color.r, stat.color.g, stat.color.b);
+          pdf.roundedRect(x, yPos, qBoxW, 18, 2, 2, "F");
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(12);
+          pdf.setFont("helvetica", "bold");
+          pdf.text(stat.value, x + qBoxW / 2, yPos + 8, { align: "center" });
+          pdf.setFontSize(6);
+          pdf.setFont("helvetica", "normal");
+          pdf.text(stat.label, x + qBoxW / 2, yPos + 14, { align: "center" });
+        });
+        yPos += 24;
+
+        const qTrend = quizAnalytics.quizTrend === "improving" ? "Improving" : quizAnalytics.quizTrend === "declining" ? "Needs Focus" : "Stable";
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "italic");
+        pdf.text(`Quiz Trend: ${qTrend}`, margin + 5, yPos);
+        yPos += 8;
+      }
+
+      // ===== TOPIC-WISE PERFORMANCE =====
+      if (topicPerformance.length > 0) {
+        checkPageBreak(15 + topicPerformance.length * 12);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(12);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Topic-wise Performance", margin, yPos);
+        yPos += 8;
+
+        topicPerformance.forEach((topic) => {
+          checkPageBreak(14);
+          // Topic name and stats
+          pdf.setFontSize(9);
+          pdf.setFont("helvetica", "bold");
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(topic.topic, margin + 5, yPos);
+          pdf.setFont("helvetica", "normal");
+          pdf.setTextColor(100, 100, 100);
+          pdf.text(`${topic.sessions} sessions | Avg: ${topic.avgScore}% | Level: ${topic.mostCommonUnderstanding}`, margin + 5, yPos + 5);
+          
+          // Progress bar
+          const barY = yPos + 7;
+          const barWidth = contentWidth - 10;
+          pdf.setFillColor(230, 230, 230);
+          pdf.roundedRect(margin + 5, barY, barWidth, 3, 1, 1, "F");
+          const scoreColor = topic.avgScore >= 70 ? { r: 34, g: 197, b: 94 } : topic.avgScore >= 50 ? { r: 245, g: 158, b: 11 } : { r: 239, g: 68, b: 68 };
+          pdf.setFillColor(scoreColor.r, scoreColor.g, scoreColor.b);
+          pdf.roundedRect(margin + 5, barY, (barWidth * topic.avgScore) / 100, 3, 1, 1, "F");
+          
+          yPos += 14;
+        });
+        yPos += 5;
+      }
+
+      // ===== SUBJECTS STUDIED =====
       if (subjectsStudied.length > 0) {
         checkPageBreak(18);
         pdf.setTextColor(0, 0, 0);
@@ -901,7 +1072,7 @@ const StudentReportModal = ({
         yPos += 10;
       }
 
-      // Understanding Levels
+      // ===== UNDERSTANDING LEVELS =====
       if (Object.keys(understandingDist).length > 0) {
         checkPageBreak(25);
         pdf.setFontSize(12);
@@ -910,13 +1081,13 @@ const StudentReportModal = ({
         yPos += 7;
         pdf.setFontSize(9);
         pdf.setFont("helvetica", "normal");
+        const levelColors: Record<string, { r: number; g: number; b: number }> = {
+          excellent: { r: 34, g: 197, b: 94 },
+          good: { r: 59, g: 130, b: 246 },
+          average: { r: 245, g: 158, b: 11 },
+          weak: { r: 239, g: 68, b: 68 },
+        };
         Object.entries(understandingDist).forEach(([level, count]) => {
-          const levelColors: Record<string, { r: number; g: number; b: number }> = {
-            excellent: { r: 34, g: 197, b: 94 },
-            good: { r: 59, g: 130, b: 246 },
-            average: { r: 245, g: 158, b: 11 },
-            weak: { r: 239, g: 68, b: 68 },
-          };
           const color = levelColors[level] || { r: 100, g: 100, b: 100 };
           pdf.setTextColor(color.r, color.g, color.b);
           pdf.text(`● ${level.charAt(0).toUpperCase() + level.slice(1)}: ${count} session(s)`, margin + 5, yPos);
@@ -925,13 +1096,31 @@ const StudentReportModal = ({
         yPos += 5;
       }
 
-      // Weak Areas
+      // ===== STRONG AREAS =====
+      if (topStrongAreas.length > 0) {
+        checkPageBreak(12 + topStrongAreas.length * lineHeight);
+        pdf.setTextColor(34, 197, 94);
+        pdf.setFontSize(12);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Strong Areas", margin, yPos);
+        yPos += 7;
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "normal");
+        topStrongAreas.forEach(([area, count]) => {
+          pdf.text(`✓ ${area} (${count} session${count > 1 ? "s" : ""})`, margin + 5, yPos);
+          yPos += lineHeight;
+        });
+        yPos += 5;
+      }
+
+      // ===== WEAK AREAS =====
       if (topWeakAreas.length > 0) {
-        checkPageBreak(30);
+        checkPageBreak(12 + topWeakAreas.length * lineHeight);
         pdf.setTextColor(239, 68, 68);
         pdf.setFontSize(12);
         pdf.setFont("helvetica", "bold");
-        pdf.text("⚠ Areas Needing Improvement", margin, yPos);
+        pdf.text("Areas Needing Improvement", margin, yPos);
         yPos += 7;
         pdf.setTextColor(0, 0, 0);
         pdf.setFontSize(9);
@@ -943,27 +1132,9 @@ const StudentReportModal = ({
         yPos += 5;
       }
 
-      // Strong Areas
-      if (topStrongAreas.length > 0) {
-        checkPageBreak(30);
-        pdf.setTextColor(34, 197, 94);
-        pdf.setFontSize(12);
-        pdf.setFont("helvetica", "bold");
-        pdf.text("✓ Strong Areas", margin, yPos);
-        yPos += 7;
-        pdf.setTextColor(0, 0, 0);
-        pdf.setFontSize(9);
-        pdf.setFont("helvetica", "normal");
-        topStrongAreas.forEach(([area, count]) => {
-          pdf.text(`• ${area} (demonstrated in ${count} session${count > 1 ? "s" : ""})`, margin + 5, yPos);
-          yPos += lineHeight;
-        });
-        yPos += 5;
-      }
-
-      // Recent Quiz Results
+      // ===== RECENT QUIZ RESULTS =====
       if (quizzes.length > 0) {
-        checkPageBreak(40);
+        checkPageBreak(12 + Math.min(quizzes.length, 5) * lineHeight);
         pdf.setTextColor(0, 0, 0);
         pdf.setFontSize(12);
         pdf.setFont("helvetica", "bold");
@@ -983,9 +1154,9 @@ const StudentReportModal = ({
         yPos += 5;
       }
 
-      // AI Feedback
+      // ===== AI FEEDBACK =====
       if (aiSummaries.length > 0) {
-        checkPageBreak(40);
+        checkPageBreak(15 + aiSummaries.length * 15);
         pdf.setTextColor(59, 130, 246);
         pdf.setFontSize(12);
         pdf.setFont("helvetica", "bold");
@@ -1003,9 +1174,95 @@ const StudentReportModal = ({
           });
           yPos += 3;
         });
+        yPos += 5;
       }
 
-      // Footer
+      // ===== AI RECOMMENDATIONS (Hinglish) =====
+      if (recommendations.length > 0) {
+        checkPageBreak(15 + recommendations.length * 12);
+        pdf.setTextColor(34, 197, 94);
+        pdf.setFontSize(12);
+        pdf.setFont("helvetica", "bold");
+        pdf.text("AI Recommendations", margin, yPos);
+        yPos += 8;
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "normal");
+        recommendations.forEach((rec, i) => {
+          checkPageBreak(12);
+          const lines = pdf.splitTextToSize(`${i + 1}. ${rec}`, contentWidth - 10);
+          lines.forEach((line: string) => {
+            pdf.text(line, margin + 5, yPos);
+            yPos += 5;
+          });
+          yPos += 2;
+        });
+        yPos += 5;
+      }
+
+      // ===== PARENT TIPS =====
+      checkPageBreak(15 + parentTips.length * 12);
+      pdf.setTextColor(236, 72, 153);
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Tips for Parents", margin, yPos);
+      yPos += 8;
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFontSize(8);
+      pdf.setFont("helvetica", "normal");
+      parentTips.forEach((tip) => {
+        checkPageBreak(12);
+        const lines = pdf.splitTextToSize(`• ${tip}`, contentWidth - 10);
+        lines.forEach((line: string) => {
+          pdf.text(line, margin + 5, yPos);
+          yPos += 4.5;
+        });
+        yPos += 2;
+      });
+      yPos += 5;
+
+      // ===== CHARTS (captured as image) =====
+      if (chartsRef.current && sessions.length > 0) {
+        try {
+          const canvas = await html2canvas(chartsRef.current, {
+            backgroundColor: "#ffffff",
+            scale: 1.5,
+            logging: false,
+          });
+          const imgData = canvas.toDataURL("image/png");
+          const imgWidth = contentWidth;
+          const imgHeight = (canvas.height / canvas.width) * imgWidth;
+          
+          // Always put charts on a new page for clean layout
+          pdf.addPage();
+          yPos = 20;
+          pdf.setFontSize(8);
+          pdf.setTextColor(128, 128, 128);
+          pdf.text("Study Buddy AI - Student Progress Report", margin, 10);
+          pdf.text(`Page ${pdf.getNumberOfPages()}`, pageWidth - margin, 10, { align: "right" });
+          
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFontSize(14);
+          pdf.setFont("helvetica", "bold");
+          pdf.text("Performance Analytics & Charts", margin, yPos);
+          yPos += 8;
+          
+          // Add chart image, split across pages if needed
+          const remainingHeight = pageHeight - yPos - 20;
+          if (imgHeight <= remainingHeight) {
+            pdf.addImage(imgData, "PNG", margin, yPos, imgWidth, imgHeight);
+          } else {
+            // Scale down to fit
+            const scaledHeight = Math.min(imgHeight, remainingHeight);
+            const scaledWidth = (scaledHeight / imgHeight) * imgWidth;
+            pdf.addImage(imgData, "PNG", margin, yPos, scaledWidth, scaledHeight);
+          }
+        } catch (chartError) {
+          console.warn("Could not capture charts for PDF:", chartError);
+        }
+      }
+
+      // ===== FOOTER ON ALL PAGES =====
       const totalPages = pdf.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         pdf.setPage(i);
@@ -1021,13 +1278,12 @@ const StudentReportModal = ({
         }
       }
 
-      // Save PDF
       const fileName = `${studentName.replace(/\s+/g, "_")}_Report_${new Date().toISOString().split("T")[0]}.pdf`;
       pdf.save(fileName);
 
       toast({
         title: "PDF Downloaded!",
-        description: `Report saved as ${fileName}`,
+        description: `Complete report saved as ${fileName}`,
       });
     } catch (error) {
       console.error("Error generating PDF:", error);
